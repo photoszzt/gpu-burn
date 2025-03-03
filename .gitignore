@@ -4,3 +4,6 @@ gpu_burn-drv\.o
 compare\.ptx
 
 gpu_burn
+
+compile_commands.json
+.cache/
