@@ -58,6 +58,8 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <iomanip>
+#include <sstream>
 
 #define SIGTERM_TIMEOUT_THRESHOLD_SECS                                         \
     30 // number of seconds for sigterm to kill child processes before forcing a
@@ -668,8 +670,19 @@ void listenClients(std::vector<int> clientFd,
             }
             printf("  power: ");
             for (size_t i = 0; i < clientTemp.size(); ++i) {
-                printf(clientPowerDraw.at(i) != 0 ? "%f W " : "-- ",
-                       clientPowerDraw.at(i));
+                std::stringstream ss;
+                if (clientPowerDraw.at(i) != 0) {
+                    ss << std::fixed << std::setprecision(2) << clientPowerDraw.at(i) << " W";
+                } else {
+                    ss << "--";
+                }
+                if (clientEnforcedPowerLimit.at(i) != 0) {
+                    ss << "/" << std::fixed << clientEnforcedPowerLimit.at(i) << " W ";
+                } else {
+                    ss << "/-- ";
+                }
+                std::string powerDrawStr = ss.str();
+                printf("%s", powerDrawStr.c_str());
                 if (i != clientCalcs.size() - 1) {
                     printf("- ");
                 }
@@ -773,23 +786,26 @@ void listenClients(std::vector<int> clientFd,
 
     size_t i = 0;
     for (int maxTemp : clientMaxTemp) {
-        printf(maxTemp != 0 ? "Max temp GPU%ld=%dC\n" : "GPU %ld=--\n", i,
+        printf(maxTemp != 0 ? "Max temp,GPU%ld=%d C\n" : "GPU %ld=--\n", i,
                maxTemp);
         i += 1;
     }
 
     i = 0;
     for (int minTLimit : clientMinTLimit) {
-        printf(minTLimit != 0 ? "Min T.Limit GPU%ld=%dC\n" : "GPU %ld=--\n", i,
+        printf(minTLimit != 0 ? "Min T.Limit,GPU%ld=%d C\n" : "GPU %ld=--\n", i,
                minTLimit);
         i += 1;
     }
 
     i = 0;
     for (float maxPowerDraw : clientMaxPowerDraw) {
-        printf(maxPowerDraw != 0 ? "Max Power Draw GPU%ld=%fW\n"
+        std::stringstream ss;
+        ss << std::fixed << std::setprecision(2) << maxPowerDraw;
+        std::string powerDrawStr = ss.str();
+        printf(maxPowerDraw != 0 ? "Max Power Draw,GPU%ld=%s W\n"
                                  : "GPU %ld=--\n",
-               i, maxPowerDraw);
+               i, powerDrawStr.c_str());
         i += 1;
     }
 
