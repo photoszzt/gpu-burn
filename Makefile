@@ -14,6 +14,7 @@ override CFLAGS   += -Wno-unused-result
 override CFLAGS   += -I${CUDAPATH}/include
 override CFLAGS   += -std=c++11
 override CFLAGS   += -DIS_JETSON=${IS_JETSON}
+override CFLAGS   += -Wextra -Wall -Werror
 
 override LDFLAGS  ?=
 override LDFLAGS  += -lcuda
