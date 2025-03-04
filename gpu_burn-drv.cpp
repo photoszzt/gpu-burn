@@ -41,6 +41,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -50,6 +51,7 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -64,6 +66,36 @@
 #include "cublas_v2.h"
 #define CUDA_ENABLE_DEPRECATED
 #include <cuda.h>
+
+void logErrorFunc(int rCode, const std::string &file, int line,
+                  const std::string &desc = "") {
+    if (rCode != CUDA_SUCCESS) {
+        const char *err;
+        cuGetErrorString(static_cast<CUresult>(rCode), &err);
+
+        std::string errMsg =
+            (desc.empty() ? std::string("Error (")
+                          : (std::string("Error in ") + desc + " (")) +
+            file + ":" + std::to_string(line) + "): " + err;
+        fprintf(stderr, "%s\n", errMsg.c_str());
+    }
+}
+
+void logErrorFunc(cublasStatus_t rCode, const std::string &file, int line,
+                  const std::string &desc = "") {
+    if (rCode != CUBLAS_STATUS_SUCCESS) {
+#if CUBLAS_VER_MAJOR >= 12
+        const char *err = cublasGetStatusString(rCode);
+#else
+        const char *err = "";
+#endif
+        std::string errMsg =
+            (desc.empty() ? std::string("Error (")
+                          : (std::string("Error in ") + desc + " (")) +
+            file + ":" + std::to_string(line) + "): " + err;
+        fprintf(stderr, "%s\n", errMsg.c_str());
+    }
+}
 
 void checkErrorFunc(int rCode, const std::string &file, int line,
                     const std::string &desc = "") {
@@ -99,6 +131,9 @@ void checkErrorFunc(cublasStatus_t rCode, const std::string &file, int line,
 
 #define checkError(rCode, ...)                                                 \
     checkErrorFunc(rCode, __FILE__, __LINE__, ##__VA_ARGS__)
+
+#define logError(rCode, ...)                                                   \
+    logErrorFunc(rCode, __FILE__, __LINE__, ##__VA_ARGS__)
 
 double getTime() {
     struct timeval t;
@@ -136,10 +171,10 @@ template <class T> class GPU_Test {
         sigaction(SIGTERM, &action, nullptr);
     }
     ~GPU_Test() {
-        bind();
-        checkError(cuMemFree(d_Cdata), "Free A");
-        checkError(cuMemFree(d_Adata), "Free B");
-        checkError(cuMemFree(d_Bdata), "Free C");
+        logError(cuCtxSetCurrent(d_ctx), "Bind CTX");
+        logError(cuMemFree(d_Cdata), "Free A");
+        logError(cuMemFree(d_Adata), "Free B");
+        logError(cuMemFree(d_Bdata), "Free C");
         cuMemFreeHost(d_faultyElemsHost);
         printf("Freed memory for dev %d\n", d_devNumber);
 
@@ -149,11 +184,11 @@ template <class T> class GPU_Test {
 
     static void termHandler([[maybe_unused]] int signum) { g_running = false; }
 
-    unsigned long long int getErrors() {
+    uint64_t getErrors() {
         if (*d_faultyElemsHost != 0) {
-            d_error += (long long int)*d_faultyElemsHost;
+            d_error += *d_faultyElemsHost;
         }
-        unsigned long long int tempErrs = d_error;
+        uint64_t tempErrs = d_error;
         d_error = 0;
         return tempErrs;
     }
@@ -292,7 +327,7 @@ template <class T> class GPU_Test {
     size_t d_iters;
     size_t d_resultSize;
 
-    long long int d_error;
+    int64_t d_error;
 
     static const int g_blockSize = 16;
 
@@ -421,7 +456,7 @@ int pollTemp(pid_t *p) {
     return tempPipe[0];
 }
 
-void updateTemps(int handle, std::vector<int> &temps,
+void updateStats(int handle, std::vector<int> &temps,
                  std::vector<int> &maxTemps, std::vector<int> &TLimits,
                  std::vector<int> &minTLimits, std::vector<float> &powerDraws,
                  std::vector<float> &maxPowerDraws,
@@ -503,11 +538,11 @@ void listenClients(std::vector<int> clientFd,
     FD_ZERO(&waitHandles);
     FD_SET(tempHandle, &waitHandles);
 
-    for (size_t i = 0; i < clientFd.size(); ++i) {
-        if (clientFd.at(i) > maxHandle) {
-            maxHandle = clientFd.at(i);
+    for (int fd : clientFd) {
+        if (fd > maxHandle) {
+            maxHandle = fd;
         }
-        FD_SET(clientFd.at(i), &waitHandles);
+        FD_SET(fd, &waitHandles);
     }
 
     std::vector<int> clientTemp(clientFd.size(), 0);
@@ -572,9 +607,8 @@ void listenClients(std::vector<int> clientFd,
                     clientUpdateTime.at(i) = thisTimeSpec;
 
                     clientGflops.at(i) =
-                        static_cast<double>(
-                            static_cast<unsigned long long int>(processed) *
-                            OPS_PER_MUL) /
+                        static_cast<double>(static_cast<uint64_t>(processed) *
+                                            OPS_PER_MUL) /
                         clientTimeDelta / 1000.0 / 1000.0 / 1000.0;
                     clientCalcs.at(i) += processed;
                 }
@@ -584,7 +618,7 @@ void listenClients(std::vector<int> clientFd,
         }
 
         if (FD_ISSET(tempHandle, &waitHandles)) {
-            updateTemps(tempHandle, clientTemp, clientMaxTemp, clientTLimit,
+            updateStats(tempHandle, clientTemp, clientMaxTemp, clientTLimit,
                         clientMinTLimit, clientPowerDraw, clientMaxPowerDraw,
                         clientEnforcedPowerLimit);
         }
@@ -592,8 +626,8 @@ void listenClients(std::vector<int> clientFd,
         // Resetting the listeners
         FD_ZERO(&waitHandles);
         FD_SET(tempHandle, &waitHandles);
-        for (size_t i = 0; i < clientFd.size(); ++i) {
-            FD_SET(clientFd.at(i), &waitHandles);
+        for (int fd : clientFd) {
+            FD_SET(fd, &waitHandles);
         }
 
         // Printing progress (if a child has initted already)
@@ -752,9 +786,10 @@ void listenClients(std::vector<int> clientFd,
     }
 
     i = 0;
-    for (float maxPowerDraw: clientMaxPowerDraw) {
-        printf(maxPowerDraw != 0 ? "Max Power Draw GPU%ld=%fW\n" : "GPU %ld=--\n", i,
-               maxPowerDraw);
+    for (float maxPowerDraw : clientMaxPowerDraw) {
+        printf(maxPowerDraw != 0 ? "Max Power Draw GPU%ld=%fW\n"
+                                 : "GPU %ld=--\n",
+               i, maxPowerDraw);
         i += 1;
     }
 
@@ -779,11 +814,11 @@ void listenClients(std::vector<int> clientFd,
 
     printf("\nTested %ld GPUs:\n", clientPid.size());
     i = 0;
-    for (bool faulty: clientFaulty) {
+    for (bool faulty : clientFaulty) {
         printf("\tGPU %ld: %s\n", i, faulty ? "FAULTY" : "OK");
     }
 
-    for (bool faulty: clientFaulty) {
+    for (bool faulty : clientFaulty) {
         if (faulty) {
             printf("Faulty GPU detected, exiting\n");
             return exit(1);
@@ -835,14 +870,13 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
                          useBytes, kernelFile);
             close(writeFd);
             return;
-        } else {
-            clientPids.push_back(myPid);
-            close(mainPipe[1]);
-            int devCount;
-            read(readMain, &devCount, sizeof(int));
-            listenClients(clientPipes, clientPids, runLength,
-                          sigterm_timeout_threshold_secs);
         }
+        clientPids.push_back(myPid);
+        close(mainPipe[1]);
+        int devCount;
+        read(readMain, &devCount, sizeof(int));
+        listenClients(clientPipes, clientPids, runLength,
+                      sigterm_timeout_threshold_secs);
         for (int clientPipe : clientPipes) {
             close(clientPipe);
         }
@@ -860,41 +894,40 @@ void launch(int runLength, bool useDoubles, bool useTensorCores,
 
             close(writeFd);
             return;
+        }
+        clientPids.push_back(myPid);
+
+        close(mainPipe[1]);
+        int devCount;
+        read(readMain, &devCount, sizeof(int));
+
+        if (!devCount) {
+            fprintf(stderr, "No CUDA devices\n");
+            exit(ENODEV);
         } else {
-            clientPids.push_back(myPid);
+            for (int i = 1; i < devCount; ++i) {
+                int slavePipe[2];
+                pipe(slavePipe);
+                clientPipes.push_back(slavePipe[0]);
 
-            close(mainPipe[1]);
-            int devCount;
-            read(readMain, &devCount, sizeof(int));
+                pid_t slavePid = fork();
 
-            if (!devCount) {
-                fprintf(stderr, "No CUDA devices\n");
-                exit(ENODEV);
-            } else {
-                for (int i = 1; i < devCount; ++i) {
-                    int slavePipe[2];
-                    pipe(slavePipe);
-                    clientPipes.push_back(slavePipe[0]);
+                if (!slavePid) {
+                    // Child
+                    close(slavePipe[0]);
+                    initCuda();
+                    startBurn<T>(i, slavePipe[1], A, B, useDoubles,
+                                 useTensorCores, useBytes, kernelFile);
 
-                    pid_t slavePid = fork();
-
-                    if (!slavePid) {
-                        // Child
-                        close(slavePipe[0]);
-                        initCuda();
-                        startBurn<T>(i, slavePipe[1], A, B, useDoubles,
-                                     useTensorCores, useBytes, kernelFile);
-
-                        close(slavePipe[1]);
-                        return;
-                    }
-                    clientPids.push_back(slavePid);
                     close(slavePipe[1]);
+                    return;
                 }
-
-                listenClients(clientPipes, clientPids, runLength,
-                              sigterm_timeout_threshold_secs);
+                clientPids.push_back(slavePid);
+                close(slavePipe[1]);
             }
+
+            listenClients(clientPipes, clientPids, runLength,
+                          sigterm_timeout_threshold_secs);
         }
         for (int clientPipe : clientPipes) {
             close(clientPipe);
