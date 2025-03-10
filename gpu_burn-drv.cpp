@@ -837,6 +837,7 @@ void listenClients(std::vector<int> clientFd,
     i = 0;
     for (bool faulty : clientFaulty) {
         printf("\tGPU %ld: %s\n", i, faulty ? "FAULTY" : "OK");
+        i += 1;
     }
 
     for (bool faulty : clientFaulty) {
