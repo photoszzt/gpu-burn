@@ -47,8 +47,10 @@
 #include <ctime>
 #include <exception>
 #include <fstream>
+#include <iomanip>
 #include <map>
 #include <regex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -58,8 +60,6 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
-#include <iomanip>
-#include <sstream>
 
 #define SIGTERM_TIMEOUT_THRESHOLD_SECS                                         \
     30 // number of seconds for sigterm to kill child processes before forcing a
@@ -518,6 +518,9 @@ void updateStats(int handle, std::vector<int> &temps,
             maxTemps.at(gpuIter) = tempValue;
         }
         powerDraws.at(gpuIter) = powerDraw;
+        if (powerDraw > maxPowerDraws.at(gpuIter)) {
+            maxPowerDraws.at(gpuIter) = powerDraw;
+        }
         enforcedPowerLimits.at(gpuIter) = enforcedPowerLimit;
     }
 #endif
@@ -672,12 +675,14 @@ void listenClients(std::vector<int> clientFd,
             for (size_t i = 0; i < clientTemp.size(); ++i) {
                 std::stringstream ss;
                 if (clientPowerDraw.at(i) != 0) {
-                    ss << std::fixed << std::setprecision(2) << clientPowerDraw.at(i) << " W";
+                    ss << std::fixed << std::setprecision(2)
+                       << clientPowerDraw.at(i) << " W";
                 } else {
                     ss << "--";
                 }
                 if (clientEnforcedPowerLimit.at(i) != 0) {
-                    ss << "/" << std::fixed << clientEnforcedPowerLimit.at(i) << " W ";
+                    ss << "/" << std::fixed << clientEnforcedPowerLimit.at(i)
+                       << " W ";
                 } else {
                     ss << "/-- ";
                 }
