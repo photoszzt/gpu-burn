@@ -30,9 +30,15 @@ COMPUTE      ?= 50
 CUDA_VERSION ?= 11.8.0
 IMAGE_DISTRO ?= ubi8
 
+# Define comma for string manipulation
+comma := ,
+
 override NVCCFLAGS ?=
 override NVCCFLAGS += -I${CUDAPATH}/include
-override NVCCFLAGS += -arch=compute_$(subst .,,${COMPUTE})
+# Handle COMPUTE as comma-separated list and generate multiple -gencode flags
+COMPUTE_LIST := $(subst $(comma), ,$(COMPUTE))
+GENCODE_FLAGS := $(foreach compute,$(COMPUTE_LIST),-gencode=arch=compute_$(subst .,,$(compute)),code=sm_$(subst .,,$(compute)))
+override NVCCFLAGS += $(GENCODE_FLAGS)
 
 IMAGE_NAME ?= gpu-burn
 
