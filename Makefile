@@ -30,9 +30,8 @@ override LDFLAGS  += -lcudart
 CUDA_VERSION ?= 11.8.0
 IMAGE_DISTRO ?= ubi8
 
-override NVCCFLAGS ?=
+override NVCCFLAGS ?= -gencode=arch=compute_80,code=sm_80
 override NVCCFLAGS += -I${CUDAPATH}/include
-override NVCCFLAGS += -gencode=arch=compute_80,code=sm_80
 
 IMAGE_NAME ?= gpu-burn
 
