@@ -27,13 +27,11 @@ override LDFLAGS  += -Wl,-rpath=${CUDAPATH}/lib
 override LDFLAGS  += -lcublas
 override LDFLAGS  += -lcudart
 
-COMPUTE      ?= 50
 CUDA_VERSION ?= 11.8.0
 IMAGE_DISTRO ?= ubi8
 
-override NVCCFLAGS ?=
+override NVCCFLAGS ?= -gencode=arch=compute_80,code=sm_80
 override NVCCFLAGS += -I${CUDAPATH}/include
-override NVCCFLAGS += -arch=compute_$(subst .,,${COMPUTE})
 
 IMAGE_NAME ?= gpu-burn
 
@@ -46,7 +44,7 @@ gpu_burn: gpu_burn-drv.o compare.ptx
 	g++ ${CFLAGS} -c $<
 
 %.ptx: %.cu
-	PATH="${PATH}:${CCPATH}:." ${NVCC} ${NVCCFLAGS} -ptx $< -o $@
+	PATH="${PATH}:${CCPATH}:." ${NVCC} ${NVCCFLAGS} -Xfatbin -compress-all -dlink $< -o $@
 
 clean:
 	$(RM) *.ptx *.o gpu_burn
