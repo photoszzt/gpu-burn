@@ -30,24 +30,30 @@ override LDFLAGS  += -lcudart
 CUDA_VERSION ?= 11.8.0
 IMAGE_DISTRO ?= ubi8
 
-override NVCCFLAGS ?= -gencode=arch=compute_80,code=sm_80
+override NVCCFLAGS ?= -gencode=arch=compute_80,code=sm_80 \
+                      -gencode=arch=compute_86,code=sm_86 \
+                      -gencode=arch=compute_89,code=sm_89 \
+                      -gencode=arch=compute_90,code=sm_90 \
+                      -gencode=arch=compute_100,code=sm_100 \
+                      -gencode=arch=compute_120,code=compute_120
+
 override NVCCFLAGS += -I${CUDAPATH}/include
 
 IMAGE_NAME ?= gpu-burn
 
 .PHONY: clean
 
-gpu_burn: gpu_burn-drv.o compare.ptx
+gpu_burn: gpu_burn-drv.o compare.fatbin
 	g++ -o $@ $< -O3 ${LDFLAGS}
 
 %.o: %.cpp
 	g++ ${CFLAGS} -c $<
 
-%.ptx: %.cu
-	PATH="${PATH}:${CCPATH}:." ${NVCC} ${NVCCFLAGS} -Xfatbin -compress-all -dlink $< -o $@
+%.fatbin: %.cu
+	PATH="${PATH}:${CCPATH}:." ${NVCC} ${NVCCFLAGS} -fatbin $< -o $@
 
 clean:
-	$(RM) *.ptx *.o gpu_burn
+	$(RM) *.ptx *.fatbin *.o gpu_burn
 
 image:
 	docker build --build-arg CUDA_VERSION=${CUDA_VERSION} --build-arg IMAGE_DISTRO=${IMAGE_DISTRO} -t ${IMAGE_NAME} .
